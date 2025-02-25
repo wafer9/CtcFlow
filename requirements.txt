@@ -1,0 +1,29 @@
+Pillow
+pyyaml>=5.1
+sentencepiece
+tensorboard
+torch>=2.1.2
+torchaudio>=2.1.2
+tqdm
+langid
+transformers==4.46.1
+tiktoken
+einops
+openai-whisper==20240930
+librosa
+tensorboardX
+jiwer
+peft
+timm
+fairseq # pip<=24.0
+
+onnx==1.16.0
+onnxruntime-gpu==1.16.0; sys_platform == 'linux'
+onnxruntime==1.16.0; sys_platform == 'darwin' or sys_platform == 'windows'
+
+# cam++
+modelscope
+addict
+datasets
+simplejson
+sortedcontainers

@@ -1,0 +1,65 @@
+## model_args
+stage: 0
+model_path:
+audio_model: /nfs-speech-cfs/wangzhou/.cache/models/whisper-large-v2
+audio_config:
+    model_type: whisper
+    apply_spec_augment: true
+    mask_time_prob: 0.2
+    mask_time_length: 10
+    mask_time_min_masks: 2
+    mask_feature_prob: 0.27
+    mask_feature_length: 10
+    mask_feature_min_masks: 1
+
+text_model: /nfs-speech-cfs/wangzhou/.cache/models/Qwen2-0.5B # Qwen-7B  Qwen2-0.5B
+text_config:
+    model_type: qwen
+tokenizer:
+
+dataset_conf:
+    filter_conf:
+        max_length: 3000
+        min_length: 10
+        token_max_length: 1000
+        token_min_length: 1
+    resample_conf:
+        resample_rate: 16000
+    speed_perturb: false
+    fbank_conf:
+        num_mel_bins: 80
+    spec_aug: false
+    spec_aug_conf:
+        num_t_mask: 2
+        num_f_mask: 2
+        max_t: 50
+        max_f: 30
+    shuffle: true
+    shuffle_conf:
+        shuffle_size: 1500
+    sort: true
+    sort_conf:
+        sort_size: 1000  # sort_size should be less than shuffle_size
+    batch_conf:
+        batch_type: 'static' # static or dynamic
+        batch_size: 8
+        # max_frames_in_batch: 4000
+
+grad_clip: 5
+accum_grad: 2
+max_epoch: 10
+log_interval: 100
+optim_conf:
+    lr: [0.00001,0.00005]
+scheduler_conf:
+    warmup_steps: 5000
+
+
+num_special_tokens_add: 4011
+use_fast_tokenizer: False
+freeze_audio_model: False
+freeze_text_model: False
+lora_text_model: False
+chat: False
+
+run_name: "whisper_llm_librispeech"
