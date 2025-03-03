@@ -39,10 +39,8 @@ class LAMModel(PreTrainedModel):
         self,
         config: Optional[LAMConfig] = None,
         audio_model: Optional[PreTrainedModel] = None,
-        ctc_model: Optional[PreTrainedModel] = None,
         text_model: Optional[PreTrainedModel] = None,
         tokenizer: Optional[QWenAudioTokenizer] = None,
-        d2v_dict: Optional[Dictionary] = None,
     ):
         if config is None and (audio_model is None or text_model is None):
             raise ValueError(
@@ -73,42 +71,44 @@ class LAMModel(PreTrainedModel):
                 config.text_config, trust_remote_code=True)
 
         self.audio_model = audio_model
-        self.ctc_model = ctc_model
-        self.text_model = text_model
+        # self.text_model = text_model
         self.audio_model.config = self.config.audio_config
-        self.text_model.config = self.config.text_config
+        # self.text_model.config = self.config.text_config
 
         dim_audio_emb = self.config.audio_config.d_model
-        dim_text_emb = self.config.text_config.hidden_size
-        self.m_adapter = TransformerAdaptorLayer(kernel_size=8, stride=8, dropout_p=0.1,model_dim=dim_audio_emb)
-        self.proj = nn.Linear(dim_audio_emb, dim_text_emb)  # TODO: _init_weights
+        # dim_text_emb = self.config.text_config.hidden_size
+        # self.m_adapter = TransformerAdaptorLayer(kernel_size=8, stride=8, dropout_p=0.1,model_dim=dim_audio_emb)
+        # self.proj = nn.Linear(dim_audio_emb, dim_text_emb)  # TODO: _init_weights
 
-        if config.text_config.model_type == 'qwen':
-            self.text_model_vocab_size = self.text_model.transformer.vocab_size
-        else:
-            self.text_model_vocab_size = self.text_model.vocab_size
-        self.num_special_tokens_add = config.num_special_tokens_add
-        if self.num_special_tokens_add > 0:
-            # self.text_model.resize_token_embeddings(new_vocab_size)
-            # 保留了原始参数值，但无法分别指定 requires_grad
-            self.wte_add = nn.Embedding(self.num_special_tokens_add,
-                                        dim_text_emb)
-            self.lm_head_add = nn.Linear(dim_text_emb,
-                                         self.num_special_tokens_add,
-                                         bias=False)
-            # Initialize the weights. Copy from Qwen-Audio
-            self.wte_add.weight.data.normal_(
-                mean=0.0, std=self.config.text_config.initializer_range)
-            self.lm_head_add.weight.data.normal_(
-                mean=0.0, std=self.config.text_config.initializer_range)
+        # if config.text_config.model_type == 'qwen':
+        #     self.text_model_vocab_size = self.text_model.transformer.vocab_size
+        # else:
+        #     self.text_model_vocab_size = self.text_model.vocab_size
+        # self.num_special_tokens_add = config.num_special_tokens_add
+        # if self.num_special_tokens_add > 0:
+        #     # self.text_model.resize_token_embeddings(new_vocab_size)
+        #     # 保留了原始参数值，但无法分别指定 requires_grad
+        #     self.wte_add = nn.Embedding(self.num_special_tokens_add,
+        #                                 dim_text_emb)
+        #     self.lm_head_add = nn.Linear(dim_text_emb,
+        #                                  self.num_special_tokens_add,
+        #                                  bias=False)
+        #     # Initialize the weights. Copy from Qwen-Audio
+        #     self.wte_add.weight.data.normal_(
+        #         mean=0.0, std=self.config.text_config.initializer_range)
+        #     self.lm_head_add.weight.data.normal_(
+        #         mean=0.0, std=self.config.text_config.initializer_range)
 
-        self.to(self.text_model.dtype)  # TODO: 
+        # self.to(self.text_model.dtype)  # TODO: 
         # self.to(torch.bfloat16)
         # self.wte_add.to(self.text_model.dtype)
         # self.lm_head_add.to(self.text_model.dtype)
         # self.post_init()  # TODO: _set_gradient_checkpointing
         self.tokenizer = tokenizer
-        self.d2v_dict = d2v_dict
+        self.ctc_lo = nn.Linear(dim_audio_emb, text_model.vocab_size)  # TODO: _init_weights
+        self.ctc_loss = torch.nn.CTCLoss(blank=self.tokenizer.eos_token_id,
+                                         reduction='mean',
+                                         zero_infinity=True)
 
 
     def _mask_input_features(
@@ -161,7 +161,7 @@ class LAMModel(PreTrainedModel):
 
         return input_features
 
-    def forward(self,
+    def forward_bk(self,
                 input_features: Optional[torch.FloatTensor] = None,
                 input_ids: Optional[torch.LongTensor] = None,
                 past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
@@ -293,6 +293,68 @@ class LAMModel(PreTrainedModel):
 
         return {"loss": loss,}
 
+
+    def forward(self,
+                input_features: Optional[torch.FloatTensor] = None,
+                input_ids: Optional[torch.LongTensor] = None,
+                past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+                attention_mask: Optional[torch.FloatTensor] = None,
+                inputs_embeds: Optional[torch.FloatTensor] = None,
+                labels: Optional[torch.LongTensor] = None,
+                use_cache: Optional[bool] = None,
+                output_attentions: Optional[bool] = None,
+                output_hidden_states: Optional[bool] = None,
+                return_dict: Optional[bool] = None,
+                audio_attention_mask: Optional[torch.FloatTensor] = None,
+                encoder_out_lengths:Optional[torch.LongTensor] = None,
+                input_wavs: Optional[torch.FloatTensor] = None,
+                raw_audio_attention_mask: Optional[torch.FloatTensor] = None,
+                audio_info: Dict = None):
+        '''
+        不支持的输入参数：
+            token_type_ids: 未采用
+            position_ids: 采用 RoPE
+            head_mask
+            encoder_hidden_states: 用于 cross attention
+            encoder_attention_mask: 用于 cross attention
+        '''
+        """
+        Args:
+            input_features (torch.Tensor): (#batch, time1, mel_size).
+            input_ids (torch.Tensor): Key tensor (#batch, label_size).
+            labels (torch.Tensor): Value tensor (#batch, label_size).
+            audio_attention_mask: Value tensor (#batch, time1) pad is False.
+            encoder_out_lengths: Value tensor (#batch).
+
+        Returns:
+        """
+        input_features = self._mask_input_features(input_features.transpose(1, 2),
+                                                       audio_attention_mask)
+        audios = self.audio_model(input_features, audio_attention_mask)['last_hidden_state']
+        ys_hat = self.ctc_lo(audios)
+        hlens = encoder_out_lengths
+
+        B = input_features.shape[0]
+        ys_pad = []
+        ys_lens = []
+        for idx in range(B):
+            bos_pos = torch.where(labels[idx] != -100)[0][0].item()
+            eos_pos = torch.where(labels[idx] == self.tokenizer.eos_token_id)[0][0].item()
+            ys_pad.append(labels[idx][bos_pos:eos_pos])
+            ys_lens.append(eos_pos - bos_pos)
+        ys_pad = pad_sequence(ys_pad,batch_first=True, padding_value=-1).to(device=audios.device)
+        ys_lens = torch.tensor(ys_lens, dtype=torch.int32, device=audios.device)
+
+        # ys_hat: (B, L, D) -> (L, B, D)
+        ys_hat = ys_hat.transpose(0, 1)
+        ys_hat = ys_hat.log_softmax(2)
+        loss = self.ctc_loss(ys_hat, ys_pad, hlens, ys_lens)
+        # Batch-size average
+        # loss = loss / ys_hat.size(1)
+
+        return {"loss": loss,}
+
+
     def generate(
         self,
         input_ids,
@@ -383,14 +445,17 @@ class LAMModel(PreTrainedModel):
         assert isinstance(model_path, str)
         assert isinstance(config, WhisperConfig)
         audio_model = WhisperEncoder(config)
-        old_state_dict = torch.load(
-            os.path.join(model_path, "pytorch_model.bin"))
-        state_dict = {}
-        for para_name in old_state_dict.keys():
-            if "model.encoder." in para_name:
-                new_name = para_name.replace("model.encoder.", "")
-                state_dict[new_name] = old_state_dict[para_name]
-        audio_model.load_state_dict(state_dict)
+        # old_state_dict = torch.load(
+        #     os.path.join(model_path, "pytorch_model.bin"))
+        # state_dict = {}
+        # for para_name in old_state_dict.keys():
+        #     if "model.encoder." in para_name:
+        #         if "model.encoder.conv1" in para_name:
+        #             continue
+        #         new_name = para_name.replace("model.encoder.", "")
+        #         state_dict[new_name] = old_state_dict[para_name]
+                
+        # audio_model.load_state_dict(state_dict, strict=False)
 
         return audio_model
 
@@ -443,16 +508,16 @@ class LAMModel(PreTrainedModel):
         else:
             # audio_config['d2v_path'] = None
             # d = None
-            if audio_config['d2v_path'] is not None:
-                cfg = Wav2Vec2CtcConfig(**audio_config['model'])
-                state = checkpoint_utils.load_checkpoint_to_cpu(audio_config['d2v_path'])
+            # if audio_config['d2v_path'] is not None:
+            #     cfg = Wav2Vec2CtcConfig(**audio_config['model'])
+            #     state = checkpoint_utils.load_checkpoint_to_cpu(audio_config['d2v_path'])
 
-                d = state['task_state']['target_dictionary']
-                ctc_model = Wav2VecCtc.build_model(cfg, d)
-                ctc_model.load_state_dict(state['model'])
+            #     d = state['task_state']['target_dictionary']
+            #     ctc_model = Wav2VecCtc.build_model(cfg, d)
+            #     ctc_model.load_state_dict(state['model'], strict=False)
 
-                audio_config.pop('d2v_path')
-                audio_config.pop('model')
+            #     audio_config.pop('d2v_path')
+            #     audio_config.pop('model')
 
             audio_pretrained_config = AutoConfig.from_pretrained(
                 audio_model, **audio_config)
@@ -474,9 +539,7 @@ class LAMModel(PreTrainedModel):
                                num_special_tokens_add=num_special_tokens_add)
         model = cls(config=lam_config,
                     audio_model=audio_model,
-                    ctc_model = ctc_model,
                     text_model=text_model,
-                    tokenizer=tokenizer,
-                    d2v_dict=d)
+                    tokenizer=tokenizer)
         model.generation_config = text_model.generation_config
         return model

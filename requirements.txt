@@ -2,7 +2,7 @@ Pillow
 pyyaml>=5.1
 sentencepiece
 tensorboard
-torch>=2.1.2
+torch<=2.4.1
 torchaudio>=2.1.2
 tqdm
 langid
@@ -27,3 +27,6 @@ addict
 datasets
 simplejson
 sortedcontainers
+
+# conda install -c conda-forge 'ffmpeg<7'
+# conda install conda-forge::sox -y

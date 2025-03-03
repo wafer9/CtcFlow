@@ -45,7 +45,7 @@ logging.getLogger('langid').setLevel(logging.INFO)
 
 def get_T_after_pool(L_in, model_type='whisper', dilation=1):
     if model_type == "whisper":
-        conv = "[(1,3,1)] + [(1,3,2)]"
+        conv = "[(1,3,2)] + [(1,3,2)]"
     else:
         conv = "[(1,3,1)] + [(1,3,2)] + [(4,8,8)]"    
     for (padding, kernel_size, stride) in eval(conv):
@@ -141,7 +141,13 @@ def decode_wav(sample):
             {key, wav, sample_rate, ...}
     """
     assert 'key' in sample
+    # sample['wav'] = sample['audio']
+    # del sample['audio']
     assert 'wav' in sample
+    obj = json.loads(sample['text'])
+    sample['text'] = obj['text']
+    sample['label'] = obj['label']
+
     wav_file = sample['wav']
     if isinstance(wav_file, str):
         with open(wav_file, 'rb') as f:
@@ -159,6 +165,7 @@ def decode_wav(sample):
         with io.BytesIO(wav_file) as file_obj:
             waveform, sample_rate = torchaudio.load(file_obj)
     # del wav_file
+    sample['wav_file'] = obj['audio']
     del sample['wav']
     sample['wav'] = waveform  # overwrite wav
     sample['sample_rate'] = sample_rate
@@ -316,6 +323,9 @@ def filter(sample,
     if num_frames < min_length:
         return False
     if num_frames > max_length:
+        return False
+
+    if 'Emilia/ZH' not in sample['wav_file']:
         return False
 
     if 'label' in sample:

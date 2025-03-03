@@ -15,7 +15,7 @@
 import copy
 import datetime
 import logging
-import sys
+import os
 from contextlib import nullcontext
 
 # if your python version < 3.7 use the below one
@@ -25,6 +25,7 @@ from wenet.utils.common import StepTimer
 
 from wenet.utils.train_utils import log_per_step
 from torch.nn.utils import clip_grad_norm_
+from wenet.utils.checkpoint import load_checkpoint, save_checkpoint
 
 class Executor:
 
@@ -37,7 +38,7 @@ class Executor:
         self.device = device
 
     def train(self, model, optimizer, scheduler, train_data_loader,
-              writer, configs):
+              writer, configs, rank):
         ''' Train one epoch
         '''
         if self.train_step_timer is None:
@@ -66,7 +67,7 @@ class Executor:
                 input_features=batch_dict['feats'].to(self.device)
                 input_ids=batch_dict['input_ids'].to(self.device)
                 audio_attention_mask=batch_dict['audio_attention_mask'].to(self.device)
-                adapter_out_lengths = batch_dict['adapter_out_lengths'].to(self.device)
+                encoder_out_lengths = batch_dict['encoder_out_lengths'].to(self.device)
                 input_wavs = batch_dict['wavs'].to(self.device)
                 raw_audio_attention_mask=batch_dict['raw_audio_attention_mask'].to(self.device)
                 labels=batch_dict['labels'].to(self.device)
@@ -89,7 +90,7 @@ class Executor:
                     loss_dict = model(input_features=input_features, 
                                  input_ids=input_ids, 
                                  audio_attention_mask=audio_attention_mask,
-                                 adapter_out_lengths=adapter_out_lengths,
+                                 encoder_out_lengths=encoder_out_lengths,
                                  labels=labels,
                                  input_wavs=input_wavs,
                                  raw_audio_attention_mask=raw_audio_attention_mask,
@@ -113,6 +114,18 @@ class Executor:
                 log_per_step(writer, info_dict, timer=self.train_step_timer)
                 self.step += 1 if (batch_idx +
                                    1) % info_dict["accum_grad"] == 0 else 0
+                if self.step % 1000 == 0 and rank == 0:
+                    save_model_path = os.path.join(configs['model_dir'], '{}_{}.pt'.format(configs['epoch'], self.step))
+                    save_checkpoint(
+                        model,
+                        save_model_path,
+                        {
+                            'epoch': configs['epoch'],
+                            'cv_loss': loss.item(),
+                            'step': self.step,
+                            'save_time': datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                        }
+                    )
 
     def cv(self, model, cv_data_loader, writer, configs):
         ''' Cross validation on
@@ -134,7 +147,7 @@ class Executor:
                 input_features = batch_dict['feats'].to(self.device)
                 input_ids = batch_dict['input_ids'].to(self.device)
                 audio_attention_mask = batch_dict['audio_attention_mask'].to(self.device)
-                adapter_out_lengths = batch_dict['adapter_out_lengths'].to(self.device)
+                encoder_out_lengths = batch_dict['encoder_out_lengths'].to(self.device)
                 input_wavs = batch_dict['wavs'].to(self.device)
                 raw_audio_attention_mask=batch_dict['raw_audio_attention_mask'].to(self.device)
                 labels = batch_dict['labels'].to(self.device)
@@ -146,7 +159,7 @@ class Executor:
                 loss_dict = model(input_features=input_features, 
                                  input_ids=input_ids, 
                                  audio_attention_mask=audio_attention_mask,
-                                 adapter_out_lengths=adapter_out_lengths,
+                                 encoder_out_lengths=encoder_out_lengths,
                                  labels=labels,
                                  input_wavs=input_wavs,
                                  raw_audio_attention_mask=raw_audio_attention_mask,

@@ -131,33 +131,13 @@ def main():
     def _freeze_params(module):
         for param in module.parameters():
             param.requires_grad = False
-    if model.ctc_model is not None:
-        _freeze_params(model.ctc_model)
+
+    # if model.ctc_model is not None:
+    #     _freeze_params(model.ctc_model)
 
     if configs['freeze_audio_model']:
         _freeze_params(model.audio_model)
         # _freeze_params(model.proj)
-
-    if  configs['freeze_text_model']:
-        _freeze_params(model.text_model)
-    elif configs['lora_text_model']:
-        lora_config = LoraConfig(
-            r=64,
-            lora_alpha=16,
-            target_modules=[
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "up_proj",
-                "gate_proj",
-                "down_proj",
-            ],
-            lora_dropout=0.05,
-            task_type="CAUSAL_LM",
-        )
-        model.text_model = get_peft_model(model.text_model, lora_config)
-        model.text_model.print_trainable_parameters()
 
 
     train_conf = configs['dataset_conf']
@@ -207,6 +187,9 @@ def main():
         num_params = sum(p.numel() for p in model.parameters())
         print('the number of model params: {:,d}'.format(num_params))
 
+        num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print('the number of model requires_grad params: {:,d}'.format(num_params))
+
         # Writer
         os.makedirs(args.model_dir, exist_ok=True)
         exp_id = os.path.basename(args.model_dir)
@@ -218,10 +201,7 @@ def main():
             fout.write(data)
 
 
-    optimizer = optim.Adam([{'params':model.text_model.parameters(), 'lr':configs['optim_conf']['lr'][0]},
-                            {'params':model.m_adapter.parameters(), 'lr':configs['optim_conf']['lr'][1]},
-                            {'params':model.proj.parameters(), 'lr':configs['optim_conf']['lr'][1]},
-                            {'params':model.audio_model.parameters(), 'lr':configs['optim_conf']['lr'][1]},])
+    optimizer = optim.Adam(model.parameters(), lr=configs['optim_conf']['lr'])
     scheduler = WarmupLR(optimizer, **configs['scheduler_conf'])
 
     model.cuda()
@@ -245,7 +225,8 @@ def main():
         if rank == 0:
             logging.info('Epoch {} TRAIN info lr {}'.format(epoch, lr))
         # dist.barrier() # Ensure all ranks start Train at the same time.
-        executor.train(model, optimizer, scheduler, train_data_loader, writer, configs)
+        configs['model_dir'] = args.model_dir
+        executor.train(model, optimizer, scheduler, train_data_loader, writer, configs, rank)
         # dist.barrier() # Ensure all ranks start CV at the same time.
         loss = executor.cv(model, cv_data_loader, writer, configs)
 

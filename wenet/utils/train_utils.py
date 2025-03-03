@@ -27,6 +27,8 @@ import json
 
 
 from wenet.utils.common import (StepTimer, lrs_to_str, tensor_to_scalar)
+logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s %(levelname)s %(message)s')
 
 
 def log_per_step(writer, info_dict, timer: Optional[StepTimer] = None):

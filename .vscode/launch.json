@@ -1,0 +1,36 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Debug",
+            "type": "python",
+            "request": "launch",
+            "program": "/data/joe/miniconda3/envs/ctcflow/lib/python3.10/site-packages/torch/distributed/launch.py",
+            "cwd": "/mnt/nfs_share_speech0/wangzhou/llm/CtcFlow",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "1",
+                "HUGGINGFACE_HUB_CACHE": "/mnt/nfs_share_speech0/wangzhou/.cache/huggingface",
+                "TRANSFORMERS_CACHE": "/mnt/nfs_share_speech0/wangzhou/.cache/transformers",
+                "HF_HOME": "/mnt/nfs_share_speech0/wangzhou/.cache/huggingface",
+                "RANK": "0",
+                "WORLD_SIZE": "1",
+                "PYTHONPATH": "/mnt/nfs_share_speech0/wangzhou/llm/CtcFlow"
+            },
+            "args": [
+                "--nproc-per-node=1",
+                "--master_port=25678",
+                "/mnt/nfs_share_speech0/wangzhou/llm/CtcFlow/wenet/bin/train.py",
+                "--config", "/mnt/nfs_share_speech0/wangzhou/llm/CtcFlow/conf/run_stage1.yaml",
+                "--data_type", "shard",
+                "--train_data", "/mnt/nfs_share_speech0/wangzhou/llm/CtcFlow/data/emilia/zh_en.list",
+                "--cv_data", "/mnt/nfs_share_speech0/wangzhou/llm/CtcFlow/data/emilia/dev.list",
+                "--model_dir", "/mnt/nfs_share_speech0/wangzhou/llm/CtcFlow/exp/qwen0",
+                "--tensorboard_dir", "/mnt/nfs_share_speech0/wangzhou/llm/CtcFlow/exp/tensorboard",
+                "--ddp.dist_backend", "nccl",
+                "--num_workers", "1",
+            ]
+        }
+    ]
+}
